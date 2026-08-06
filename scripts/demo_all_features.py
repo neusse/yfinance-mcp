@@ -868,7 +868,31 @@ def _render_report(
     for record in records:
         groups.setdefault(_record_group(record), []).append(record)
 
-    group_nav = "".join(f'<a href="#{_slug(group)}">{escape(group)}</a>' for group in groups)
+    workflow_directory = []
+    for group, group_records in groups.items():
+        workflow_calls = "".join(
+            f'<li><a href="#call-{record.number}">{escape(_display_title(record.tool_name, record.arguments, record.context))}</a>'
+            f"<span>Call {record.number:02d} · <code>{escape(record.tool_name)}</code></span></li>"
+            for record in group_records
+        )
+        workflow_directory.append(
+            f'<div class="directory-group"><h3><a href="#{_slug(group)}">{escape(group)}</a></h3>'
+            f'<ol class="directory-list">{workflow_calls}</ol></div>'
+        )
+
+    tool_directory = []
+    for tool in advertised_tools:
+        tool_records = [record for record in records if record.tool_name == tool.name]
+        mode_links = "".join(
+            f'<li><a href="#call-{record.number}">{escape(_display_title(record.tool_name, record.arguments, record.context))}</a>'
+            f"<span>{escape(_variant_label(record.tool_name, record.arguments))} · Call {record.number:02d}</span></li>"
+            for record in tool_records
+        )
+        tool_directory.append(
+            f'<div class="directory-group"><h3><a href="#tool-{_slug(tool.name)}"><code>{escape(tool.name)}</code></a></h3>'
+            f'<ol class="directory-list">{mode_links}</ol></div>'
+        )
+
     coverage_rows = []
     catalog_sections = []
     for tool in advertised_tools:
@@ -961,6 +985,12 @@ def _render_report(
     main {{ width:min(1180px,calc(100% - 3rem)); margin:0 auto; }}
     section {{ padding:clamp(4rem,8vw,8rem) 0; border-bottom:1px solid var(--line); }}
     .section-heading {{ display:grid; grid-template-columns:1fr auto; gap:1rem; align-items:end; margin-bottom:2.5rem; }}
+    .directory-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,26rem),1fr)); column-gap:clamp(2rem,6vw,6rem); }}
+    .directory-group {{ padding:1.5rem 0 2rem; border-top:1px solid var(--line); }}
+    .directory-group h3 {{ margin:0 0 1rem; font-size:1rem; }} .directory-group h3 a {{ text-decoration:none; }}
+    .directory-list {{ margin:0; padding:0; list-style:none; }} .directory-list li {{ padding:.7rem 0; border-top:1px dotted var(--line); }}
+    .directory-list li:first-child {{ border-top:0; }} .directory-list a {{ display:block; color:var(--ink); font-weight:650; text-decoration:none; }}
+    .directory-list a:hover {{ color:var(--accent); }} .directory-list span {{ display:block; margin-top:.15rem; color:var(--muted); font-size:.75rem; }}
     h2 {{ margin:.2rem 0 0; font-family:Georgia,serif; font-size:clamp(2.2rem,5vw,4.4rem); letter-spacing:-.04em; }}
     h3 {{ margin:.15rem 0 .45rem; font-size:clamp(1.35rem,3vw,2rem); line-height:1.15; }} h4 {{ margin:0 0 .7rem; }}
     .coverage table, table {{ width:100%; border-collapse:collapse; }} th {{ text-align:left; color:var(--muted); font-size:.72rem; letter-spacing:.08em; text-transform:uppercase; }}
@@ -987,8 +1017,14 @@ def _render_report(
   <div class="run-strip"><div><span>Generated</span>{escape(generated)}</div><div><span>Stock</span>{escape(args.symbol)}</div>
     <div><span>Fund look-through</span>{escape(args.fund_symbol)}</div><div><span>Advertised tools</span>{len(tool_order)}</div>
     <div><span>Live calls</span>{len(records)}</div><div><span>Errors</span>{len(failures)}</div></div>
-  <nav class="index" aria-label="Feature index"><strong>Index</strong><a href="#coverage">Coverage</a><a href="#catalog">Tool catalog</a>{group_nav}</nav>
+  <nav class="index" aria-label="Feature index"><strong>Index</strong><a href="#workflow-index">By workflow</a><a href="#tool-index">By MCP tool</a><a href="#coverage">Coverage</a><a href="#catalog">Schemas</a></nav>
   <main>
+    <section id="workflow-index" class="directory"><div class="section-heading"><div><p class="eyebrow">Index · User goals</p><h2>By workflow</h2></div>
+      <p>Start with what you want to accomplish, then jump to each live MCP call in sequence.</p></div>
+      <div class="directory-grid">{"".join(workflow_directory)}</div></section>
+    <section id="tool-index" class="directory"><div class="section-heading"><div><p class="eyebrow">Index · Server interface</p><h2>By MCP tool</h2></div>
+      <p>The 15 advertised tools are the high-level API. Nested links are modes, sections, or follow-up calls—not additional tools.</p></div>
+      <div class="directory-grid">{"".join(tool_directory)}</div></section>
     <section id="coverage" class="coverage"><div class="section-heading"><div><p class="eyebrow">Server inventory</p><h2>Complete coverage</h2></div>
       <p>The client enumerated the server first, then exercised every advertised tool.</p></div>
       <p><strong>Server command:</strong> <code>{escape(command)}</code></p>

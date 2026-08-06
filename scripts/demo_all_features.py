@@ -501,6 +501,8 @@ def _call_title(tool_name: str, arguments: dict[str, Any]) -> str:
 
 
 def _variant_label(tool_name: str, arguments: dict[str, Any]) -> str:
+    if tool_name == "yfinance_get_fund_data":
+        return "look-through holdings" if arguments.get("sections") == ["top_holdings"] else "all fund sections"
     if tool_name == "yfinance_search":
         return f"{arguments['search_type']}"
     if tool_name == "yfinance_screen":
@@ -630,8 +632,11 @@ def _server_command_text(server_parameters: StdioServerParameters) -> str:
 
 
 def _record_group(record: CallRecord) -> str:
-    if record.context and record.context.startswith("Fund look-through"):
-        return "Fund research"
+    is_holdings_call = record.tool_name == "yfinance_get_fund_data" and record.arguments.get("sections") == [
+        "top_holdings"
+    ]
+    if is_holdings_call or (record.context and record.context.startswith("Fund look-through")):
+        return "Fund look-through"
     return TOOL_GUIDANCE[record.tool_name][0]
 
 
@@ -917,9 +922,16 @@ def _render_report(
                 f"{f'<p class="error-message">{escape(error)}</p>' if error else ''}</div></div>"
                 f'{_structured_result_html(record)}<a class="back" href="#top">Back to index ↑</a></article>'
             )
+        group_label = "Research workflow" if group == "Fund look-through" else "Feature group"
+        group_summary = (
+            f"{args.fund_symbol} holdings followed by profiles of its three largest reported positions."
+            if group == "Fund look-through"
+            else f"{len(group_records)} live MCP calls"
+        )
         call_sections.append(
-            f'<section class="feature-group" id="{_slug(group)}"><div class="section-heading"><p class="eyebrow">Feature group</p>'
-            f"<h2>{escape(group)}</h2><p>{len(group_records)} live MCP calls</p></div>{''.join(articles)}</section>"
+            f'<section class="feature-group" id="{_slug(group)}"><div class="section-heading">'
+            f'<div><p class="eyebrow">{group_label}</p><h2>{escape(group)}</h2></div>'
+            f"<p>{escape(group_summary)}</p></div>{''.join(articles)}</section>"
         )
 
     generated = datetime.now().astimezone().isoformat(timespec="seconds")

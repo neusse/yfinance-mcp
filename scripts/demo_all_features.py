@@ -64,7 +64,7 @@ FUND_SECTIONS = [
     "sector_weightings",
 ]
 
-FUND_LOOKTHROUGH_LIMIT = 3
+FUND_TOP_HOLDING_PROFILE_LIMIT = 3
 
 TOOL_GUIDANCE: dict[str, tuple[str, str, str]] = {
     "yfinance_get_ticker_info": (
@@ -483,7 +483,7 @@ def _response_summary(tool_name: str, arguments: dict[str, Any], result: CallToo
 def _call_title(tool_name: str, arguments: dict[str, Any]) -> str:
     title = TOOL_GUIDANCE[tool_name][1]
     if tool_name == "yfinance_get_fund_data" and arguments.get("sections") == ["top_holdings"]:
-        return "Fund look-through (underlying holdings)"
+        return "Fund top holdings"
     if tool_name == "yfinance_search":
         return f"{title} ({arguments['search_type']})"
     if tool_name == "yfinance_screen":
@@ -502,7 +502,7 @@ def _call_title(tool_name: str, arguments: dict[str, Any]) -> str:
 
 def _variant_label(tool_name: str, arguments: dict[str, Any]) -> str:
     if tool_name == "yfinance_get_fund_data":
-        return "look-through holdings" if arguments.get("sections") == ["top_holdings"] else "all fund sections"
+        return "top_holdings" if arguments.get("sections") == ["top_holdings"] else "all documented fund sections"
     if tool_name == "yfinance_search":
         return f"{arguments['search_type']}"
     if tool_name == "yfinance_screen":
@@ -592,7 +592,7 @@ def _first_option_date(record: CallRecord | None) -> str | None:
     return None
 
 
-def _fund_top_holdings(record: CallRecord | None, limit: int = FUND_LOOKTHROUGH_LIMIT) -> list[dict[str, Any]]:
+def _fund_top_holdings(record: CallRecord | None, limit: int = FUND_TOP_HOLDING_PROFILE_LIMIT) -> list[dict[str, Any]]:
     payload = _json_payload(record.result if record is not None else None)
     if not isinstance(payload, dict) or not isinstance(payload.get("top_holdings"), list):
         return []
@@ -635,8 +635,8 @@ def _record_group(record: CallRecord) -> str:
     is_holdings_call = record.tool_name == "yfinance_get_fund_data" and record.arguments.get("sections") == [
         "top_holdings"
     ]
-    if is_holdings_call or (record.context and record.context.startswith("Fund look-through")):
-        return "Fund look-through"
+    if is_holdings_call or (record.context and record.context.startswith("Top holding profile")):
+        return "Fund top holdings"
     return TOOL_GUIDANCE[record.tool_name][0]
 
 
@@ -699,6 +699,15 @@ def _structured_result_html(record: CallRecord) -> str:  # noqa: C901
         sections.append(_html_table(["Price measure", "Value"], [row for row in rows if row[1] is not None]))
 
     elif record.tool_name == "yfinance_get_fund_data" and isinstance(payload, dict):
+        if record.arguments.get("sections") == ["top_holdings"]:
+            sections.append(
+                '<p class="source-map"><strong>Official yfinance API:</strong> '
+                "<code>Ticker.funds_data.top_holdings</code>. "
+                "<strong>MCP mapping:</strong> <code>yfinance_get_fund_data</code> with "
+                '<code>sections=["top_holdings"]</code>. '
+                '<a href="https://ranaroussi.github.io/yfinance/reference/api/'
+                'yfinance.scrapers.funds.FundsData.html">Official FundsData documentation</a>.</p>'
+            )
         holdings = payload.get("top_holdings")
         if isinstance(holdings, list):
             rows = []
@@ -946,12 +955,14 @@ def _render_report(
                 f"{f'<p class="error-message">{escape(error)}</p>' if error else ''}</div></div>"
                 f'{_structured_result_html(record)}<a class="back" href="#top">Back to index ↑</a></article>'
             )
-        group_label = "Research workflow" if group == "Fund look-through" else "Feature group"
-        group_summary = (
-            f"{args.fund_symbol} holdings followed by profiles of its three largest reported positions."
-            if group == "Fund look-through"
-            else f"{len(group_records)} live MCP calls"
-        )
+        group_label = "Composed workflow" if group == "Fund top holdings" else "Feature group"
+        if group == "Fund top holdings":
+            group_summary = (
+                f"{args.fund_symbol} top_holdings followed by ticker profiles for its three largest reported positions. "
+                "The profiles are follow-up MCP calls, not a separate yfinance method."
+            )
+        else:
+            group_summary = f"{len(group_records)} live MCP calls"
         call_sections.append(
             f'<section class="feature-group" id="{_slug(group)}"><div class="section-heading">'
             f'<div><p class="eyebrow">{group_label}</p><h2>{escape(group)}</h2></div>'
@@ -1015,7 +1026,7 @@ def _render_report(
   <header class="hero"><p class="eyebrow">Live MCP capability report</p><h1>yfinance-mcp</h1>
     <p class="lede">Every advertised tool, its supported arguments, the exact calls made, and the real Yahoo Finance responses—organized for exploration.</p></header>
   <div class="run-strip"><div><span>Generated</span>{escape(generated)}</div><div><span>Stock</span>{escape(args.symbol)}</div>
-    <div><span>Fund look-through</span>{escape(args.fund_symbol)}</div><div><span>Advertised tools</span>{len(tool_order)}</div>
+    <div><span>Fund symbol</span>{escape(args.fund_symbol)}</div><div><span>Advertised tools</span>{len(tool_order)}</div>
     <div><span>Live calls</span>{len(records)}</div><div><span>Errors</span>{len(failures)}</div></div>
   <nav class="index" aria-label="Feature index"><strong>Index</strong><a href="#workflow-index">By workflow</a><a href="#tool-index">By MCP tool</a><a href="#coverage">Coverage</a><a href="#catalog">Schemas</a></nav>
   <main>
@@ -1051,15 +1062,12 @@ def _render_report(
 
 def _print_dry_run(args: argparse.Namespace) -> None:
     calls = _demo_calls(args.symbol, args.fund_symbol, args.sector)
-    print(f"The live demo will make up to {len(calls) + FUND_LOOKTHROUGH_LIMIT + 3} MCP calls.")
+    print(f"The live demo will make up to {len(calls) + FUND_TOP_HOLDING_PROFILE_LIMIT + 3} MCP calls.")
     for number, (tool_name, arguments) in enumerate(calls, start=1):
         print(f"[{number:02d}] {tool_name}: {json.dumps(arguments, sort_keys=True)}")
     next_number = len(calls) + 1
-    for holding_number in range(1, FUND_LOOKTHROUGH_LIMIT + 1):
-        print(
-            f"[{next_number:02d}] yfinance_get_ticker_info: "
-            f'{{"symbol": "<SCHD look-through holding {holding_number}>"}}'
-        )
+    for holding_number in range(1, FUND_TOP_HOLDING_PROFILE_LIMIT + 1):
+        print(f'[{next_number:02d}] yfinance_get_ticker_info: {{"symbol": "<SCHD top holding {holding_number}>"}}')
         next_number += 1
     option_dates_call_number = next(
         number for number, (tool_name, _) in enumerate(calls, start=1) if tool_name == "yfinance_get_option_dates"
@@ -1078,7 +1086,7 @@ async def _run_demo(args: argparse.Namespace) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
     server_parameters = _server_parameters(args)
     calls = _demo_calls(args.symbol, args.fund_symbol, args.sector)
-    total_calls = len(calls) + FUND_LOOKTHROUGH_LIMIT + 3
+    total_calls = len(calls) + FUND_TOP_HOLDING_PROFILE_LIMIT + 3
     workflow_failures: list[str] = []
     records: list[CallRecord] = []
     advertised_tools: list[Any] = []
@@ -1114,7 +1122,7 @@ async def _run_demo(args: argparse.Namespace) -> int:
             if tool_name == "yfinance_get_option_dates":
                 option_dates_record = record
 
-        lookthrough_record = next(
+        top_holdings_record = next(
             (
                 record
                 for record in records
@@ -1122,15 +1130,15 @@ async def _run_demo(args: argparse.Namespace) -> int:
             ),
             None,
         )
-        holdings = _fund_top_holdings(lookthrough_record)
+        holdings = _fund_top_holdings(top_holdings_record)
         if not holdings:
-            message = f"No underlying holdings were returned for {args.fund_symbol}; look-through cannot continue."
+            message = f"No top_holdings were returned for {args.fund_symbol}; holding profiles cannot continue."
             print(message, file=sys.stderr)
             workflow_failures.append(message)
         for holding_number, holding in enumerate(holdings, start=1):
             weight = holding.get("weight")
             weight_text = f", {float(weight) * 100:.2f}% weight" if isinstance(weight, int | float) else ""
-            context = f"Fund look-through {holding_number}: {holding['name']} ({holding['symbol']}{weight_text})"
+            context = f"Top holding profile {holding_number}: {holding['name']} ({holding['symbol']}{weight_text})"
             record = await _call_tool(
                 session,
                 output_dir,
